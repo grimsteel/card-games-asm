@@ -1,2 +1,3 @@
 solitaire
-solitaire.o
+solitaire-debug
+*.o
