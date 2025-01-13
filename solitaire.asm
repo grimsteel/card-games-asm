@@ -28,8 +28,9 @@ main_loop:
 
   call getc
   sub eax, 'q'
-  jz exit
+  jz exit ; quit when they press q
 
+;; shuffle cards
 game_loop:
   
 
@@ -76,6 +77,14 @@ print:
   syscall
   ret
 
+init_shuffle_cards:
+	mov r8d, 52
+	loop:
+	mov [all_cards + r8d], r8d
+	dec r8d
+	jnz loop
+	ret
+
 section .data
 welcome: db `\033[?25l\033[H\033[J\033[36mSolitaire:\033[m\n[⏎] Play [q] Exit`
 welcome_len: equ $ - welcome
@@ -83,7 +92,16 @@ bye: db `\nBye\033[?25h\n`
 bye_len: equ $ - bye
 section .bss
 termios_buf: resb termios_size
+; all cards
+all_cards: rep 52 db 255
 ; 24 length deck
-deck: rep 24 db 1
-  
-  
+deck: rep 24 db 255
+; 7 piles of max 19 each
+piles: rep 7 rep 19 db 255
+; 4 piles of max 19 each
+foundations: rep 4 rep 19 db 255
+
+;; DATA STRUCTURE
+;; Bits [0, 2): [0]: Spades [1]: Clubs [2]: Diamonds [3]: Hearts
+;; Bits [2, 6): 4 bit integer representing rank. 0 is Ace. 12 is King.
+;; 255 represents a null card
