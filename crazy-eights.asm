@@ -21,6 +21,7 @@ _start:
   and dword [termios_buf + termios.c_lflag], ~(0b1010) ; CANON + ECHO
   inc esi
   call tcgetorset
+  call open_socket
 
 main_loop:
   mov esi, welcome
@@ -28,7 +29,7 @@ main_loop:
   call print
 
   call getc
-  sub eax, 'q'
+  sub eax, 'e'
   jz exit ; quit when they press q
 
 ;; shuffle cards
@@ -44,6 +45,8 @@ exit:
   mov esi, bye
   mov edx, bye_len
   call print
+
+  call close_socket
   
   mov al, 60
   xor edi, edi
@@ -79,11 +82,11 @@ print:
   ret
 
 init_shuffle_cards:
-  ; set all that we won't touch to 255 (discard + 7 piles + 4 foundation)
+  ; set all to 255 (two hands + deck + discard)
   xor r8d, r8d                  ; clear r8
-  mov r8b, 24 + 7 * 19 + 4 * 13
+  mov r8b, 50 * 4
 .loop1:
-  mov byte [discard + r8], 255
+  mov byte [deck + r8], 255
   dec r8b
   jnz .loop1
 
@@ -121,6 +124,26 @@ init_shuffle_cards:
   jnz .loop3
   
   ret
+
+open_socket:
+  mov eax, 41                   ; socket
+  mov edi, 2                    ; AF_INET
+  mov esi, edi                  ; SOCK_DGRAM
+  xor edx, edx                  ; protocol (0)
+  syscall
+  mov [sock_fd], al             ; store return val in sock_fd
+
+  mov edi, eax                  ; fd in param 1
+  mov eax, 49                   ; bind
+  ret
+
+close_socket:
+  mov eax, 3                    ; close
+  xor edi, edi
+  mov dil, [sock_fd]            ; arg 1 = fd
+  syscall
+  ret
+  
 print_deck:
   mov r8b, 52
 .loop:
@@ -130,7 +153,7 @@ print_deck:
   ret
 
 section .data
-welcome: db `\033[?25l\033[H\033[J\033[36mCrazy Eights:\033[m\n[⏎] Play [q] Exit`
+welcome: db `\033[?25l\033[H\033[J\033[36mCrazy Eights:\033[m\n[h]ost [c]onnect [e]xit`
 welcome_len: equ $ - welcome
 bye: db `\nBye\033[?25h\n`
 bye_len: equ $ - bye
@@ -144,6 +167,7 @@ discard: resb 50
 hand1: resb 50
 hand2: resb 50
 rand: resb 51
+sock_fd: resb 1
 ;; DATA STRUCTURE
 ;; Bits [0, 2): [0]: Spades [1]: Clubs [2]: Diamonds [3]: Hearts
 ;; Bits [2, 6): 4 bit integer representing rank. 0 is Ace. 12 is King.
