@@ -1,13 +1,24 @@
-solitaire: solitaire.o
+SRCS:=$(wildcard *.asm)
+BINS:=$(patsubst %.asm,bin/%,$(SRCS))
+BINS_DEBUG:=$(patsubst %.asm,bin/%-debug,$(SRCS))
+
+all: $(BINS)
+debug: $(BINS_DEBUG)
+
+bin/%: bin/%.o
 	ld -o $@ $^ -s -z noseparate-code  && strip --strip-section-headers $@
-solitaire-debug: solitaire-debug.o
+
+bin/%-debug: bin/%.debug.o
 	ld -o $@ $^
 
-solitaire.o: solitaire.asm
-	nasm -f elf64 $^ -o $@
+bin/%.o: %.asm | bin
+	nasm -f elf64 $^ -o $@ -O9
 
-solitaire-debug.o: solitaire.asm
+bin/%.debug.o: %.asm | bin
 	nasm -f elf64 $^ -o $@ -g
 
+bin:
+	mkdir -p bin
+
 clean:
-	rm -f solitaire solitaire.o
+	rm -rf bin

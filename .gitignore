@@ -1,3 +1,1 @@
-solitaire
-solitaire-debug
-*.o
+bin/

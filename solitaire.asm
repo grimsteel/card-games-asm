@@ -78,12 +78,29 @@ print:
   ret
 
 init_shuffle_cards:
-	mov r8d, 52
-	loop:
-	mov [all_cards + r8d], r8d
-	dec r8d
-	jnz loop
+  ; set all that we won't touch to 255 (discard + 7 piles + 4 foundation)
+  xor r8d, r8d                  ; clear r8
+  mov r8b, 24 + 7 * 19 + 4 * 13
+.loop1:
+  mov byte [discard + r8], 255
+  dec r8b
+  jnz .loop1
+
+  ; Ace of spades all the wy to King of hearts
+	mov r8b, 52
+.loop2:
+	mov byte [all_cards + r8], r8b
+	dec r8b
+	jnz .loop2
 	ret
+
+print_deck:
+  mov r8b, 52
+.loop:
+  mov r9b, [all_cards + r8]
+  dec r8b
+  jnz .loop
+  ret
 
 section .data
 welcome: db `\033[?25l\033[H\033[J\033[36mSolitaire:\033[m\n[⏎] Play [q] Exit`
@@ -93,13 +110,14 @@ bye_len: equ $ - bye
 section .bss
 termios_buf: resb termios_size
 ; all cards
-all_cards: rep 52 db 255
+all_cards: resb 52
 ; 24 length deck
-deck: rep 24 db 255
+deck: resb 24
+discard: resb 24
 ; 7 piles of max 19 each
-piles: rep 7 rep 19 db 255
-; 4 piles of max 19 each
-foundations: rep 4 rep 19 db 255
+piles: resb 7 * 19
+; 4 piles of max 13 each
+foundations: resb 4 * 13
 
 ;; DATA STRUCTURE
 ;; Bits [0, 2): [0]: Spades [1]: Clubs [2]: Diamonds [3]: Hearts
