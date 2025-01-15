@@ -9,6 +9,14 @@ struc termios
   resb 44
 endstruc
 
+struc sockaddr_in
+.sin_len: resb 1
+.sin_family: resb 1
+.sin_port: resb 2
+.sin_addr: resb 4
+.sin_zero: resb 8
+endstruc
+
 %define TCGETS 21505
 %define TCSETS 21506
   
@@ -32,6 +40,7 @@ main_loop:
   sub eax, 'e'
   jz exit ; quit when they press q
 
+  call init_shuffle_cards
 ;; shuffle cards
 game_loop:
   
@@ -48,8 +57,9 @@ exit:
 
   call close_socket
   
-  mov al, 60
-  xor edi, edi
+  mov eax, 60
+  ; already done in close_socket
+  ;xor edi, edi
   syscall
 
 ;; Execute TCGETS or TCSETS from/into `termios_buf`
@@ -83,58 +93,72 @@ print:
 
 init_shuffle_cards:
   ; set all to 255 (two hands + deck + discard)
-  xor r8d, r8d                  ; clear r8
-  mov r8b, 50 * 4
+  xor cl, cl
 .loop1:
-  mov byte [deck + r8], 255
-  dec r8b
-  jnz .loop1
+  mov byte [deck + ecx], 255
+  inc cl
+  cmp cl, 50 * 4
+  jl .loop1
 
   ; Ace of spades all the wy to King of hearts
-	mov r8b, 52
+  xor cl, cl
 .loop2:
-	mov byte [all_cards + r8], r8b
-	dec r8b
-	jnz .loop2
+	mov byte [all_cards + ecx], r8b
+  inc cl
+  cmp cl, 52
+	jl .loop2
 
   ; shuffle
-  ; generate random nums
+  ; generate random nums - getrandom(buf, 51, 0)
   mov eax, 318                  ; getrandom
   mov edi, rand                 ; buf
   mov esi, 51                   ; len
   xor edx, edx                  ; flags
   syscall
 
-  ; fisher-yates (n-2 to 0)
+  ; fisher-yates shuffle the array
   mov r8b, 50
   mov r10d, rand                ; iterate through rand (let's call the idx k)
 .loop3:
   mov r9b, r8b
   add r9b, 2                    ; 0 <= j <= i, r8b = i - 1, so the range is r8b + 2
-  mov eax, [r10]                ; j = rand[k] % (r8b + 2)
-  xor edx, edx
-  div r9b                       ; now edx has j
-  mov r11b, [rand + r8 + 1]     ; r11b = rand[r8b + 1] = rand[i]
-  mov r12b, [rand + edx]        ; r12b = rand[j]
-  mov [rand + r8 + 1], r12b     ; rand[i] = r12b
-  mov [rand + edx], r11b        ; rand[j] = r11b
+  xor eax, eax                  ; clear eax
+  mov byte al, [r10]            ; j = rand[k] % (r8b + 2)
+  div r9b                       ; now ah (lower 8 of eax) has j
+  shr eax, 8                         ; take lower 8 bits (remainder
+  mov byte r9b, [all_cards + r8 + 1]     ; r9b = all_cards[r8b + 1] = all_cards[i]
+  mov byte r11b, [all_cards + eax]        ; r11b = all_cards[j]
+  mov byte [all_cards + r8 + 1], r11b     ; all_cards[i] = r11b
+  mov byte [all_cards + eax], r9b        ; all_cards[j] = r9b
+
+  inc r10b
   
   dec r8b
-  inc r10b
   jnz .loop3
   
   ret
 
 open_socket:
+  ; sock_fd = socket(AF_INET, SOCK_STREAM_TCP)
   mov eax, 41                   ; socket
   mov edi, 2                    ; AF_INET
-  mov esi, edi                  ; SOCK_DGRAM
-  xor edx, edx                  ; protocol (0)
+  mov esi, 1                    ; SOCK_STREAM
+  xor edx, 6                    ; TCP
   syscall
   mov [sock_fd], al             ; store return val in sock_fd
 
-  mov edi, eax                  ; fd in param 1
-  mov eax, 49                   ; bind
+  ; bind(sock_fd, sock_addr_buf, sockaddr_in_size)
+  mov dil, al                  ; fd in param 1
+  mov al, 49                   ; bind
+  mov esi, sock_addr_buf
+  mov dl, sockaddr_in_size
+  syscall
+
+  ; listen(sock_fd, 0)
+  mov eax, 50
+  xor edi, edi                  ; backlog
+  syscall
+  
   ret
 
 close_socket:
@@ -148,6 +172,7 @@ print_deck:
   mov r8b, 52
 .loop:
   mov r9b, [all_cards + r8]
+
   dec r8b
   jnz .loop
   ret
@@ -157,6 +182,14 @@ welcome: db `\033[?25l\033[H\033[J\033[36mCrazy Eights:\033[m\n[h]ost [c]onnect 
 welcome_len: equ $ - welcome
 bye: db `\nBye\033[?25h\n`
 bye_len: equ $ - bye
+sock_addr_buf:
+istruc sockaddr_in
+at .sin_len, db 0
+at .sin_family, db 2            ; AF_INET
+at .sin_port, dw 9999
+at .sin_addr, dd 0              ; 0.0.0.0
+at .sin_zero, dq 0 
+iend
 section .bss
 termios_buf: resb termios_size
 ; all cards
