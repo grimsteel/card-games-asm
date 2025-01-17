@@ -11,28 +11,65 @@ _start:
   ; disable terminal line buffering
   mov esi, TCGETS
   call tcgetorset
-  and dword [termios_buf + termios.c_lflag], ~(0b1010) ; CANON + ECHO
+  and dword [termios_buf + termios.c_lflag], ~(0x0A) ; ~(CANON | ECHO)
   inc esi
   call tcgetorset
-  call open_socket
 
 main_loop:
+  mov esi, clear
+  mov edx, clear_len
+  call print
   mov esi, welcome
   mov edx, welcome_len
   call print
 
   call getc
-  sub eax, 'e'
-  jz exit ; quit when they press q
-
-  call init_shuffle_cards
-;; shuffle cards
-game_loop:
+  cmp eax, 'e'
+  je exit ; quit when they press e
+  cmp eax, 'h'
   
+game_start:
+  ; shuffle cards
+  call init_shuffle_cards
+
+  mov esi, board
+  mov edx, board_len
+  call print
+  call print_board_values
+game_loop:
+  call print_board_values
+
+  ; print menu
+  mov esi, turn_commands
+  mov edx, turn_commands_len
+  call print
+  call getc
+
+  cmp eax, 'e'
+  je exit
+  cmp eax, 'd'
+  je draw_card
+
+place_card:
+  jmp game_loop
+
+draw_card:
+  xor r8d, r8d
+  xor r9d, r9d
+  mov byte r8b, [deck_len]
+  dec r8b
+  ; TODO: shuffle empty deck
+  mov byte [deck_len], r8b      ; decrement deck_len
+  mov byte r8b, [deck + r8d]    ; fetch item at pos
+  mov byte r9b, [hand1_len]
+  inc r9b
+  mov byte [hand1 + r9d], r9b; store
+  mov byte [hand1_len], r9b
+  jmp game_loop
 
 exit:  
   ; re-enable buffering
-  or dword [termios_buf + termios.c_lflag], 0b1010 ; CANON + ECHO
+  or dword [termios_buf + termios.c_lflag], 0x0A ; CANON + ECHO
   mov esi, TCSETS
   call tcgetorset
 
@@ -46,6 +83,50 @@ exit:
   ; already done in close_socket
   xor edi, edi
   syscall
+
+print_board_values:
+  ; print hand, deck, and discard lengths
+  mov r12b, 4
+  mov r10d, hand2_len
+  mov r13d, hand2_pos
+.print_nums_loop:
+  ; move to pos
+  mov esi, r13d
+  mov edx, pos_len
+  add r13d, edx
+  call print
+  
+  mov byte dil, [r10d]
+  call print_num
+  
+  inc r10d
+  dec r12b
+  jnz .print_nums_loop
+
+  ; print discard card
+  mov esi, dis_card_pos
+  mov edx, pos_len
+  call print
+  xor edi, edi
+  mov byte dil, [discard_len]
+  dec edi
+  mov byte r8b, [discard + edi]
+  call print_card
+
+  ; print hand
+  mov esi, hand1_card_pos
+  mov edx, hand1_card_pos_len
+  call print
+
+  xor r9d, r9d
+.print_hand_loop:
+  mov byte r8b, [hand1 + r9d]
+  call print_card
+  inc r9b
+  cmp r9b, [hand1_len]
+  jl .print_hand_loop
+
+  ret
 
 init_shuffle_cards:
   ; set all to 255 (two hands + deck + discard)
@@ -139,41 +220,51 @@ print_card:
   add esi, ranks                ; get rank letter
   call print
 
-  ; each card symbol is a 3-byte UTF-8 sequence
-  mov edx, 3
+  ; each card symbol is a 3-byte UTF-8 sequence + 1 byte space
+  mov edx, 4
 
-  xor eax, eax
-  mov byte al, r8b
-  and al, 0b11                  ; get suit (lower 2 bits)
-  mov cl, 3                     ; multiply by 3 (because 3 byte)
-  mul cl                        ; mul only works with rax
-  add eax, suits                ; get suit symbol
-  mov esi, eax                  ; move into esi
+  xor esi, esi
+  mov byte sil, r8b
+  and sil, 0x3                  ; get suit (lower 2 bits)
+  shl sil, 2                    ; multiply by 4 (4 bytes)
+  add esi, suits                ; get suit symbol
   call print
   
   ret
 
 section .data
-welcome: db `\033[?25l\033[36mCrazy Eights:\033[m\n[h]ost [c]onnect [e]xit`
+welcome: db '[?25l[36mCrazy Eights:[m', 0xA, '[h]ost [c]onnect [e]xit'
 welcome_len: equ $ - welcome
-clear: db `\033[H\033[J`
+board: db '[2H[JThem:    [  ]', 0xA, 0xA, 'Discard: [  ]', 0xA, 'Deck:    [  ]', 0xA, 0xA, 'You:     [  ]'
+board_len: equ $ - board
+turn_commands: db '[10H[JYour turn:', 0xA, '[d]raw [p]lace [e]xit'
+turn_commands_len: equ $ - turn_commands
+hand2_pos: db '[2;11H'
+hand1_pos: db '[7;11H'
+dis_pos: db '[4;11H'
+deck_pos: db '[5;11H'
+pos_len: equ $ - deck_pos
+dis_card_pos: db '[4;15H'
+hand1_card_pos: db '[8;1H[K'
+hand1_card_pos_len: equ $ - hand1_card_pos
+clear: db '[H[J'
 clear_len: equ $ - clear
-bye: db `\nBye\033[?25h\n`
+bye: db '[?25h'
 bye_len: equ $ - bye
-ranks: db `A23456789TJQK`
-suits: db `♠♣♦♥`
+ranks: db 'A23456789TJQK'
+suits: db '♠ ♣ ♦ ♥ '
 section .bss
 ; all cards
 all_cards: resb 52
 ; if the deck had 51 or 52 cards, somebody would have won
 deck: resb 50
-deck_len: resb 1
 discard: resb 50
-discard_len: resb 1
 hand1: resb 50
-hand1_len: resb 1
 hand2: resb 50
 hand2_len: resb 1
+hand1_len: resb 1
+discard_len: resb 1
+deck_len: resb 1
 rand: resb 51
 ;; DATA STRUCTURE
 ;; Bits [0, 2): [0]: Spades [1]: Clubs [2]: Diamonds [3]: Hearts

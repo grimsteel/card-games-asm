@@ -47,6 +47,26 @@ print:
   syscall
   ret
 
+;; Print a number in dil between 0 and 99, inclusive
+print_num:
+  xor eax, eax
+  xor r9d, r9d
+  mov al, dil                   ; al = r8b / 10, dh = r8b % 10
+  mov r9b, 10
+  div r9b
+  
+  ; make the numbers digits
+  or eax, '00'
+
+  push rax
+  mov rsi, rsp
+
+  mov edx, 2
+  call print
+
+  pop rax
+  ret
+
 open_socket:
   ; sock_fd = socket(AF_INET, SOCK_STREAM, TCP)
   mov eax, 41                   ; socket
@@ -80,11 +100,11 @@ close_socket:
 section .data
 sock_addr_buf:
 istruc sockaddr_in
-at .sin_len, db 0
-at .sin_family, db 2            ; AF_INET
-at .sin_port, dw 9999
-at .sin_addr, dd 0              ; 0.0.0.0
-at .sin_zero, dq 0 
+at sockaddr_in.sin_len, db 0
+at sockaddr_in.sin_family, db 2            ; AF_INET
+at sockaddr_in.sin_port, dw 9999
+at sockaddr_in.sin_addr, dd 0              ; 0.0.0.0
+at sockaddr_in.sin_zero, dq 0 
 iend
 section .bss
 termios_buf: resb termios_size

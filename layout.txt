@@ -1,0 +1,17 @@
+Crazy Eights:
+Them:    [03]
+
+Discard: [00] 3H
+Deck:    [37]
+
+You:     [00]
+3S 4S 5S 6S
+1  2  3  4
+
+Your turn:
+[d]raw [p]lay [e]xit
+
+Card number:
+
+Pick suit:
+[s]pades [c]lubs [d]iamonds [h]earts
