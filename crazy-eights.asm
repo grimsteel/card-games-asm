@@ -55,15 +55,20 @@ place_card:
 
 draw_card:
   xor r8d, r8d
-  xor r9d, r9d
+  ;xor r9d, r9d already cleared
   mov byte r8b, [deck_len]
+  cmp r8b, 0
+  je game_loop
   dec r8b
-  ; TODO: shuffle empty deck
+  jnz exec_draw_card
+  ; shuffle the empty deck
+  
+exec_draw_card:
   mov byte [deck_len], r8b      ; decrement deck_len
   mov byte r8b, [deck + r8d]    ; fetch item at pos
   mov byte r9b, [hand1_len]
+  mov byte [hand1 + r9d], r8b; store
   inc r9b
-  mov byte [hand1 + r9d], r9b; store
   mov byte [hand1_len], r9b
   jmp game_loop
 
@@ -129,16 +134,8 @@ print_board_values:
   ret
 
 init_shuffle_cards:
-  ; set all to 255 (two hands + deck + discard)
-  xor ecx, ecx
-.resetDeckLoop:
-  mov byte [deck + ecx], 255
-  inc cl
-  cmp cl, 50 * 4
-  jl .resetDeckLoop
-
   ; Ace of spades all the wy to King of hearts
-  xor cl, cl
+  xor ecx, ecx
 .initCardsLoop:
 	mov byte [all_cards + ecx], cl
   inc cl
@@ -154,24 +151,24 @@ init_shuffle_cards:
   syscall
 
   ; fisher-yates shuffle the array
-  mov r8b, 50
+  mov r9d, 52
   mov r10d, rand                ; iterate through rand (let's call the idx k)
 .shuffleLoop:
-  mov r9b, r8b
-  add r9b, 2                    ; 0 <= j <= i, r8b = i - 1, so the range is r8b + 2
-  xor eax, eax                  ; clear eax
+  ;xor eax, eax                  ; clear eax
   mov byte al, [r10]            ; j = rand[k] % (r8b + 2)
-  div r9b                       ; now ah (lower 8 of eax) has j
-  shr eax, 8                         ; take lower 8 bits (remainder
-  mov byte r9b, [all_cards + r8d + 1]     ; r9b = all_cards[r8b + 1] = all_cards[i]
+  div r9b                       ; now ah (upper 8 of eax) has j
+  shr eax, 8
+  ;  mov byte r9b, [all_cards + ecx + 1]     ; r9b = all_cards[r8b + 1] = all_cards[i]
+  ; instead: because rand is monotonically increasing
+  dec r9b
   mov byte r11b, [all_cards + eax]        ; r11b = all_cards[j]
-  mov byte [all_cards + r8d + 1], r11b     ; all_cards[i] = r11b
+  mov byte [all_cards + r9d], r11b     ; all_cards[i] = r11b
   mov byte [all_cards + eax], r9b        ; all_cards[j] = r9b
 
-  inc r10b
-  
-  dec r8b
-  jnz .shuffleLoop
+  inc r10d
+
+  cmp r9b, 1
+  jg .shuffleLoop
 
   ; move first 14 into hand1 + hand2
   xor ecx, ecx
