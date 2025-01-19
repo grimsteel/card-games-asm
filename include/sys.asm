@@ -97,6 +97,14 @@ close_socket:
   syscall
   ret
 
+;; get `esi` random bytes into `rand` (max 51)
+getrandom:
+  mov eax, 318                  ; getrandom
+  mov edi, rand                 ; buf
+  xor edx, edx                  ; flags
+  syscall
+  ret
+
 section .data
 sock_addr_buf:
 istruc sockaddr_in
@@ -109,4 +117,5 @@ iend
 section .bss
 termios_buf: resb termios_size
 sock_fd: resb 1
+rand: resb 51
 %endif
