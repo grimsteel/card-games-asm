@@ -29,15 +29,49 @@ main_loop:
   cmp eax, 'c'
   je connect
 host:
+  ; create server and wait for connection
   call create_tcp_server
-  ; wait for connection
+  ; shuffle cards
+  call init_shuffle_cards
+  ; send data over
+  inc eax                       ; eax = 1
+  xor edi, edi
+  mov byte dil, [conn_fd]
+  mov esi, all_cards
+  mov edx, 52
+  syscall
   jmp game_start
 connect:
   call create_tcp_client
-game_start:
-  ; shuffle cards
-  call init_shuffle_cards
+  ; recv data
+  xor edi, edi
+  mov byte dil, [conn_fd]
 
+  ; first 7 into hand2
+  mov esi, hand2
+  mov edx, 7
+  mov byte [hand2_len], dl
+  syscall
+  ; next 7 into hand1
+  mov esi, hand1
+  mov edx, eax                  ; eax = 7
+  xor eax, eax
+  mov byte [hand1_len], dl
+  syscall
+  ; next 1 into discard
+  mov esi, discard 
+  xor edx, edx
+  inc edx
+  xor eax, eax
+  mov byte [discard_len], dl
+  syscall
+  ; next 37 into deck
+  mov esi, deck
+  mov edx, 52
+  dec eax                       ; eax = 1, -> eax = 0
+  mov byte [deck_len], dl
+  syscall
+game_start:
   mov esi, board
   mov edx, board_len
   call print
