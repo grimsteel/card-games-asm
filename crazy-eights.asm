@@ -26,8 +26,14 @@ main_loop:
   call getc
   cmp eax, 'e'
   je exit ; quit when they press e
-  cmp eax, 'h'
-  
+  cmp eax, 'c'
+  je connect
+host:
+  call create_tcp_server
+  ; wait for connection
+  jmp game_start
+connect:
+  call create_tcp_client
 game_start:
   ; shuffle cards
   call init_shuffle_cards
@@ -363,7 +369,7 @@ hand1_select_icon: db 'G↑'       ; 'G' is remaining from the CSI sequence abov
 hand1_select_icon_len: equ $ - hand1_select_icon
 clear: db '[H[J'
 clear_len: equ $ - clear
-bye: db '[?25h'
+bye: db '[?25h[H[J'
 bye_len: equ $ - bye
 ranks: db 'A23456789TJQK'
 suits: db '♠ ♣ ♦ ♥ '
