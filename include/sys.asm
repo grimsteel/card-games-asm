@@ -1,6 +1,11 @@
 %ifndef SYS_ASM
 %define SYS_ASM
 
+%macro mov1 1
+  xor %1, %1
+  inc %1
+%endmacro
+
 struc termios
   resb 12
 .c_lflag: resb 12
@@ -40,8 +45,7 @@ getc:
 ;; Print a string to the screen
 ;; Parameters: esi (str pointer), edx/dl (str len)
 print:
-  xor eax, eax
-  inc eax                       ; 1 (write)
+  mov1 eax                      ; 1 (write)
   mov edi, eax                  ; 1 (stdout)
   syscall
   ret
@@ -69,8 +73,7 @@ print_num:
 open_socket:
   ; sock_fd = socket(AF_INET, SOCK_STREAM, TCP)
   mov eax, 41                   ; socket
-  xor esi, esi
-  inc esi                       ; esi = 1 = SOCK_STREAM
+  mov1 esi                      ; esi = 1 = SOCK_STREAM
   mov edi, esi
   inc edi                       ; edi = 2 = AF_INET
   xor edx, edx
@@ -89,6 +92,8 @@ create_tcp_server:
   mov esi, sock_addr_buf
   mov edx, sockaddr_in_size
   syscall
+  cmp eax, 0
+  jl syscall_error
 
   ; listen(sock_fd, 0)
   mov al, 50
@@ -115,6 +120,8 @@ create_tcp_client:
   mov esi, sock_addr_buf
   mov dl, sockaddr_in_size
   syscall
+  cmp eax, 0
+  jl syscall_error
 
   ; conn_fd == sock_fd for clients
   mov byte [conn_fd], dil
@@ -214,15 +221,60 @@ prompt_addr:
   call print
   ret
 
+;; perform a 1 byte read into the stack (through r8) from conn_fd
+stack_read_write_conn:
+  push r8
+  ;xor edi, edi
+  mov byte dil, [conn_fd]
+  mov rsi, rsp
+  mov1 edx                      ; 1 byte
+  syscall
+  pop r8
+  ret
+
+syscall_error:
+  neg eax
+  mov dword [exit_code], eax
+  mov esi, syscall_error_msg
+  mov edx, syscall_error_msg_len
+  call print
+  jmp quit.exit
+
+quit:
+  mov r8d, 0x34
+  mov1 eax
+  call stack_read_write_conn
+.exit:
+  ; re-enable buffering
+  or dword [termios_buf + termios.c_lflag], 0x0A ; CANON + ECHO
+  mov esi, TCSETS
+  call tcgetorset
+
+  mov esi, bye
+  mov edx, bye_len
+  call print
+
+  call close_socket
+  
+  mov eax, 60
+  ; already done in close_socket
+  mov edi, [exit_code]
+  syscall
+
 section .data
 addr_prompt: db '[2H[J[?25hAddr: '
 addr_prompt_len: equ $ - addr_prompt
-waiting: db '[?25lWaiting...'
+waiting: db '[?25lWaiting…'
 waiting_len: equ $ - waiting
+bye: db '[?25h', 0xA
+bye_len: equ $ - bye
+syscall_error_msg: db 0xA, 'OS error. (See return code)'
+syscall_error_msg_len: equ $ - syscall_error_msg
 section .bss
 termios_buf: resb termios_size
 sock_fd: resb 1
 conn_fd: resb 1
+exit_code: resd 1
 rand: resb 51
 input_addr: resb 22             ; 000.000.000.000:00000\n
 sock_addr_buf: resb sockaddr_in_size

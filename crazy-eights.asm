@@ -24,16 +24,13 @@ _start:
   call tcgetorset
 
 main_loop:
-  mov esi, clear
-  mov edx, clear_len
-  call print
   mov esi, welcome
   mov edx, welcome_len
   call print
 
   call getc
   cmp eax, 'e'
-  je exit ; quit when they press e
+  je quit.exit ; quit when they press e
   cmp eax, 'c'
   je connect
 host:
@@ -48,7 +45,8 @@ host:
   mov esi, all_cards
   mov edx, 52
   syscall
-  jmp game_start
+  call initial_print
+  jmp game_loop_host_start
 connect:
   call create_tcp_client
   ; recv data
@@ -67,9 +65,8 @@ connect:
   mov byte [hand1_len], dl
   syscall
   ; next 1 into discard
-  mov esi, discard 
-  xor edx, edx
-  inc edx
+  mov esi, discard
+  mov1 edx
   xor eax, eax
   mov byte [discard_len], dl
   syscall
@@ -79,15 +76,17 @@ connect:
   dec eax                       ; eax = 1, -> eax = 0
   mov byte [deck_len], dl
   syscall
-game_start:
-  mov esi, board
-  mov edx, board_len
-  call print
-  call print_board_values
+
+  ; wait for host move
+  call initial_print
 game_loop:
   call print_board_values
-
+  call wait_other_player
+game_loop_no_wait:
+  call print_board_values
+  
   ; print menu
+game_loop_host_start:
   mov esi, turn_commands
   mov edx, turn_commands_len
   call print
@@ -96,7 +95,7 @@ game_loop:
   xor r8d, r8d
 
   cmp eax, 'e'
-  je exit
+  je quit
   cmp eax, 'd'
   je draw_card
 
@@ -156,16 +155,19 @@ place_card:
   mov r13b, r11b
   mov r14b, r12b
   and r13b, 0x3                 ; r13b now has only 2 bits
-  and r14b, r13b                ; r14b = (r11b & 0b11) & r12b      - this ensures that r14b only has 2 bits too
+  and r14b, 0x3                 ; same
   cmp byte r13b, r14b           ; if equal, then same suit
   je .place_card_exec
   mov r13b, r11b
   mov r14b, r12b
   and r13b, 0x3C                ; upper 4 bits
-  and r14b, r13b                ; same principle as above
+  and r14b, 0x3C                ; same principle as above
   cmp byte r13b, r14b           ; if equal, then same rank
-  jne place_card                ; invalid selection
+  jne game_loop_no_wait                ; invalid selection
 .place_card_exec:
+  ; notify other player
+  mov1 eax                      ; write
+  call stack_read_write_conn
   ; dec hand size
   mov byte [hand1_len], r10b
   ; swap with last
@@ -174,9 +176,8 @@ place_card:
   ; add this card to the discard
   mov byte [discard + r9d], r11b
   ; inc discard size
-  mov byte r10b, [discard_len]
-  inc r10b
-  mov byte [discard_len], r10b
+  inc r9b
+  mov byte [discard_len], r9b
   jmp game_loop
 
 draw_card:
@@ -189,7 +190,7 @@ draw_card:
   xor esi, esi
   mov byte sil, [discard_len]                   ; len
   dec esi                                       ; move discard_len - 1 elements to the deck
-  jz game_loop
+  jz game_loop_no_wait
   ; store the top element in the discard
   mov byte r13b, [discard + esi]
   mov r9b, sil
@@ -224,6 +225,16 @@ draw_card:
   ; top in discard
   mov byte [discard], r13b
   mov byte [discard_len], 1
+
+  ; notify other player
+  mov r8d, 0x33
+  mov1 eax
+  call stack_read_write_conn
+  ; eax is 1 (wrote 1 byte)
+  ; edi is conn_fd
+  mov esi, deck
+  mov dl, r8b
+  syscall
   
 .exec_draw_card:
   dec r8b
@@ -233,27 +244,81 @@ draw_card:
   mov byte [hand1 + r9d], r8b; store
   inc r9b
   mov byte [hand1_len], r9b
-  jmp game_loop
-
-exit:  
-  ; re-enable buffering
-  or dword [termios_buf + termios.c_lflag], 0x0A ; CANON + ECHO
-  mov esi, TCSETS
-  call tcgetorset
-
-  mov esi, bye
-  mov edx, bye_len
-  call print
-
-  call close_socket
+  ; notify other player
+  mov r8d, 0x32
+  mov1 eax
+  call stack_read_write_conn
   
-  mov eax, 60
-  ; already done in close_socket
-  xor edi, edi
-  syscall
+  jmp game_loop_no_wait
 
+;; wait for complete from the other player
+;; see bottom of file for protocol
+wait_other_player:
+  ; print message
+  mov esi, waiting_for_other
+  mov edx, waiting_for_other_len
+  call print
+.move_loop:
+  xor eax, eax
+  xor r8d, r8d
+  call stack_read_write_conn
+  cmp r8b, 0x32
+  jl .place
+  je .draw
+  cmp r8b, 0x33
+  je .reshuffle
+.end_game:
+  jmp quit.exit
+.draw:
+  mov byte r8b, [deck_len]
+  dec r8b
+  mov byte [deck_len], r8b      ; decrement deck_len
+  mov byte r8b, [deck + r8d]    ; fetch item at pos
+  mov byte r9b, [hand2_len]
+  mov byte [hand2 + r9d], r8b; store
+  inc r9b
+  mov byte [hand2_len], r9b
+  jmp .move_loop
+.reshuffle:
+  ; make discard length 1
+  mov byte r8b, [discard_len]                   ; len
+  dec r8b                                       ; move discard_len - 1 elements to the deck
+  mov byte r9b, [discard + r8d]
+  mov byte [discard], r9b
+  mov byte [discard_len], 1
+  mov byte [deck_len], r8b
+  ; read shuffled cards into deck
+  xor eax, eax
+  mov esi, deck
+  mov dl, r8b
+  syscall
+  jmp .move_loop
+.place:                         ; less than 0x32 - place a card
+  xor r10d, r10d
+  mov byte r11b, [hand2 + r8d]
+  mov byte r10b, [hand2_len]
+  dec r10b
+  mov byte [hand2_len], r10b
+  ; swap with last
+  mov byte r10b, [hand2 + r10d] ; last card
+  mov byte [hand2 + r8d], r10b
+  mov byte r9b, [discard_len]
+  ; add this card to the discard
+  mov byte [discard + r9d], r11b
+  ; inc discard size
+  inc r9b
+  mov byte [discard_len], r9b
+  ret
+
+initial_print:
+  mov esi, board
+  mov edx, board_len
+  call print
+  call print_board_values
+  ret
+  
+;; print hand, deck, and discard lengths
 print_board_values:
-  ; print hand, deck, and discard lengths
   mov r12b, 4
   mov r10d, hand2_len
   mov r13d, hand2_pos
@@ -367,8 +432,7 @@ init_shuffle_cards:
 ; card in r8b
 print_card:
   ; rank = 1 byte
-  xor edx, edx
-  inc edx
+  mov1 edx
   
   xor esi, esi
   mov byte sil, r8b
@@ -389,12 +453,14 @@ print_card:
   ret
 
 section .data
-welcome: db '[?25l[36mCrazy Eights:[m', 0xA, '[h]ost [c]onnect [e]xit'
+welcome: db '[H[J[?25l[36mCrazy Eights:[m', 0xA, '[h]ost [c]onnect [e]xit'
 welcome_len: equ $ - welcome
 board: db '[2H[JThem:    [  ]', 0xA, 0xA, 'Discard: [  ]', 0xA, 'Deck:    [  ]', 0xA, 0xA, 'You:     [  ]'
 board_len: equ $ - board
 turn_commands: db '[9H[J', 0xA, 'Your turn:', 0xA, '[d]raw [p]lace [e]xit'
 turn_commands_len: equ $ - turn_commands
+waiting_for_other: db '[9H[J', 0xA, 'Waiting for other player…'
+waiting_for_other_len: equ $ - waiting_for_other
 select_card_commands: db '[10H[JSelect card:', 0xA, '[←] left [→] right [⏎] select'
 select_card_commands_len: equ $ - select_card_commands
 hand2_pos: db '[2;11H'
@@ -409,10 +475,6 @@ hand1_select_pos: db '[9H[K['    ; + column number
 hand1_select_pos_len: equ $ - hand1_select_pos
 hand1_select_icon: db 'G↑'       ; 'G' is remaining from the CSI sequence above
 hand1_select_icon_len: equ $ - hand1_select_icon
-clear: db '[H[J'
-clear_len: equ $ - clear
-bye: db '[?25h[H[J'
-bye_len: equ $ - bye
 ranks: db 'A23456789TJQK'
 suits: db '♠ ♣ ♦ ♥ '
 section .bss
@@ -427,7 +489,21 @@ hand2_len: resb 1
 hand1_len: resb 1
 discard_len: resb 1
 deck_len: resb 1
-;; DATA STRUCTURE
+;; CARD DATA STRUCTURE
 ;; Bits [0, 2): [0]: Spades [1]: Clubs [2]: Diamonds [3]: Hearts
 ;; Bits [2, 6): 4 bit integer representing rank. 0 is Ace. 12 is King.
 ;; 255 represents a null card
+
+;; NETWORK PROTOCOL
+;; Initially, 52 bytes are sent over the network. These are:
+;; [0, 7): host player cards (hand1 on host, hand2 on guest)
+;; [7, 14): guest player cards (hand2 on host, hand1 on guest)
+;; [14, 15): discard
+;; [15, 52): deck
+;; A turn is a sequence of move bytes
+;; [0x0, 0x32): place card at this index (max 50/0x32 cards in a hand). this ends a turn
+;; [0x32, 0x33): draw top card
+;; [0x33, 0x34): reshuffle deck. followed by n bytes, indicating the new cards in the deck. n is the current length of the discard - 1. the discard is emptied, with only the top card remaining
+;; [0x34, 0x35): end game
+;; Both the host and the guest are expected to keep track of state independently
+;; The protocol is designed with the assumption that transmission is reliable
