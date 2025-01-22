@@ -22,6 +22,13 @@ The multiplayer functionality is implemented through **TCP sockets**. Two player
 
 You'll need to install `nasm`. Run `make` to compile the binary.
 
+### Screenshots
+
+![game start](https://raw.githubusercontent.com/grimsteel/card-games-asm/refs/heads/main/screenshots/start-menu.png)
+![host address](https://raw.githubusercontent.com/grimsteel/card-games-asm/refs/heads/main/screenshots/host-address.png)
+![turn](https://raw.githubusercontent.com/grimsteel/card-games-asm/refs/heads/main/screenshots/turn.png)
+![select card](https://raw.githubusercontent.com/grimsteel/card-games-asm/refs/heads/main/screenshots/select-card.png)
+
 ### QR Codes
 
 As this implementation of Crazy Eights is less than 3 KB, it can be entirely encoded within a single **qr code**:
