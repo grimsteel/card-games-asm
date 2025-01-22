@@ -224,7 +224,7 @@ prompt_addr:
 ;; perform a 1 byte read into the stack (through r8) from conn_fd
 stack_read_write_conn:
   push r8
-  ;xor edi, edi
+  xor edi, edi
   mov byte dil, [conn_fd]
   mov rsi, rsp
   mov1 edx                      ; 1 byte

@@ -72,7 +72,7 @@ connect:
   syscall
   ; next 37 into deck
   mov esi, deck
-  mov edx, 52
+  mov edx, 37
   dec eax                       ; eax = 1, -> eax = 0
   mov byte [deck_len], dl
   syscall
@@ -161,15 +161,16 @@ place_card:
   mov r13b, r11b
   mov r14b, r12b
   and r13b, 0x3C                ; upper 4 bits
+  cmp r13b, 0x1C                ; rank 8
+  je .place_card_exec
   and r14b, 0x3C                ; same principle as above
   cmp byte r13b, r14b           ; if equal, then same rank
   jne game_loop_no_wait                ; invalid selection
 .place_card_exec:
-  ; notify other player
-  mov1 eax                      ; write
-  call stack_read_write_conn
   ; dec hand size
   mov byte [hand1_len], r10b
+  cmp r10b, 0
+  je player1_win
   ; swap with last
   mov byte r10b, [hand1 + r10d] ; last card
   mov byte [hand1 + r8d], r10b
@@ -178,6 +179,33 @@ place_card:
   ; inc discard size
   inc r9b
   mov byte [discard_len], r9b
+
+  mov r13b, r11b                ; store for below
+
+  ; notify other player (r8 already has card idx)
+  mov1 eax                      ; write
+  call stack_read_write_conn
+
+  ; eight card - change suit
+  shr r13b, 2
+  cmp r13b, 0x7
+  jne game_loop
+.change_suit:
+  mov esi, select_suit_commands
+  mov byte dl, select_suit_commands_len
+  call print
+  call getc
+  sub al, '0'
+  shl r13b, 2
+  or r13b, al
+  dec r9b
+  ; update discard
+  mov byte [discard + r9d], r13b
+  ; notify other player
+  add al, 0x38
+  mov byte r8b, al
+  mov1 eax                      ; write
+  call stack_read_write_conn
   jmp game_loop
 
 draw_card:
@@ -189,34 +217,34 @@ draw_card:
 
   xor esi, esi
   mov byte sil, [discard_len]                   ; len
-  dec esi                                       ; move discard_len - 1 elements to the deck
-  jz game_loop_no_wait
+  dec esi                                       ; will shuffle discard_len - 1 elements to the deck
+  jz game_loop_no_wait                          ; only 1 element in discard
   ; store the top element in the discard
-  mov byte r13b, [discard + esi]
-  mov r9b, sil
-  dec esi                       ; need discard_len - 2 random numbers
+  mov byte r13b, [discard + esi] ; esi = discard_len - 1
+  mov r8b, sil                   ; r8b = loop idx
+  dec esi                        ; need discard_len - 2 random numbers
   
   ; shuffle
-  ; generate random nums - getrandom(buf, 51, 0)
+  ; generate random nums - getrandom(buf, discard_len - 2, 0)
   call getrandom
 
   ; fisher-yates shuffle the discard back into the deck
-  mov byte [deck_len], r9b
-  mov r8b, r9b           ; for exec_draw_card below
-  mov r10d, rand                ; iterate through rand (let's call the idx k)
+  mov byte [deck_len], r8b        ; deck will now have discard_len - 1 elements
+  mov r9b, r8b                    ; for writing the deck below
+  mov r10d, rand                  ; init rand_ptr
 .shuffleLoop:
-  mov byte al, [r10]            ; j = rand[k] % (r8b + 2)
-  div r9b                       ; now ah (upper 8 of eax) has j
+  mov byte al, [r10]              ; j = rand_ptr % r8b -> r8b = i + 1
+  div r8b                         ; now ah (upper 8 of eax) has j
   shr eax, 8
-  dec r9b
-  mov byte r11b, [discard + eax]        ; r11b = all_cards[j]
-  mov byte r12b, [discard + r9d]
-  mov byte [deck + r9d], r11b     ; all_cards[i] = r11b
-  mov byte [discard + eax], r12b        ; all_cards[j] = r2b
+  dec r8b                         ; r8b--  -> r8b = i
+  mov byte r11b, [discard + eax]  ; r11b = all_cards[j]
+  mov byte r12b, [discard + r8d]
+  mov byte [deck + r8d], r11b     ; all_cards[i] = r11b
+  mov byte [discard + eax], r12b  ; all_cards[j] = r12b
 
-  inc r10d
+  inc r10d                        ; advance rand_ptr
 
-  cmp r9b, 0
+  cmp r8b, 0
   jg .shuffleLoop
 
   ; move the last element in
@@ -233,8 +261,9 @@ draw_card:
   ; eax is 1 (wrote 1 byte)
   ; edi is conn_fd
   mov esi, deck
-  mov dl, r8b
+  mov dl, r9b
   syscall
+  mov r8b, r9b                  ; for exec_draw_card
   
 .exec_draw_card:
   dec r8b
@@ -264,12 +293,22 @@ wait_other_player:
   call stack_read_write_conn
   cmp r8b, 0x32
   jl .place
-  je .draw
+  je .draw                      ; 0x32
   cmp r8b, 0x33
-  je .reshuffle
-.end_game:
-  jmp quit.exit
-.draw:
+  je .reshuffle                 ; 0x33
+  cmp r8b, 0x34
+  je quit.exit                  ; 0x34
+  cmp r8b, 0x35
+  je player2_win                ; 0x35
+.eight_card:                    ; 0x38 0x39 0x3A 0x3B
+  and r8b, 0x3                  ; lower 2 bits
+  or r8b, 0x1C                  ; rank 8 = 7 (0-indexed)  7 << 2 = 28 = 0x1C
+  mov byte r9b, [discard_len]
+  dec r9b
+  ; replace top discard with the new 8
+  mov byte [discard + r9d], r8b
+  ret
+.draw:                          ; 0x32
   mov byte r8b, [deck_len]
   dec r8b
   mov byte [deck_len], r8b      ; decrement deck_len
@@ -279,14 +318,13 @@ wait_other_player:
   inc r9b
   mov byte [hand2_len], r9b
   jmp .move_loop
-.reshuffle:
-  ; make discard length 1
+.reshuffle:                     ; 0x33
   mov byte r8b, [discard_len]                   ; len
-  dec r8b                                       ; move discard_len - 1 elements to the deck
-  mov byte r9b, [discard + r8d]
+  dec r8b                                       
+  mov byte r9b, [discard + r8d]                 ; move last element in discard to discard
   mov byte [discard], r9b
-  mov byte [discard_len], 1
-  mov byte [deck_len], r8b
+  mov byte [discard_len], 1                     ; make discard length 1
+  mov byte [deck_len], r8b                      ; deck now has discard_len - 1 elements
   ; read shuffled cards into deck
   xor eax, eax
   mov esi, deck
@@ -308,6 +346,9 @@ wait_other_player:
   ; inc discard size
   inc r9b
   mov byte [discard_len], r9b
+  shr r11b, 2
+  cmp r11b, 0x7
+  je .move_loop                 ; if it's an 8, wait for decision
   ret
 
 initial_print:
@@ -316,6 +357,23 @@ initial_print:
   call print
   call print_board_values
   ret
+
+player1_win:
+  ; notify other player
+  mov1 eax                      ; write
+  mov r8d, 0x35
+  call stack_read_write_conn
+  
+  mov esi, player1_win_msg
+  mov edx, player1_win_msg_len
+  call print
+  jmp quit.exit
+
+player2_win:
+  mov esi, player2_win_msg
+  mov edx, player2_win_msg_len
+  call print
+  jmp quit.exit
   
 ;; print hand, deck, and discard lengths
 print_board_values:
@@ -397,19 +455,27 @@ init_shuffle_cards:
   ; move first 14 into hand1 + hand2
   xor ecx, ecx
   mov r8d, all_cards
-.initHandsLoop:
+.initHand1Loop:
   mov byte r9b, [r8d]
   mov byte [hand1 + ecx], r9b
   inc r8d
+  inc cl
+  cmp cl, 7
+  jl .initHand1Loop
+
+  mov byte [hand1_len], cl
+
+  xor ecx, ecx
+.initHand2Loop:
   mov byte r9b, [r8d]
   mov byte [hand2 + ecx], r9b
   inc r8d
   inc cl
   cmp cl, 7
-  jl .initHandsLoop
+  jl .initHand2Loop
 
-  mov byte [hand1_len], cl
   mov byte [hand2_len], cl
+
   ; move next one into discard
   mov byte r9b, [r8d]
   inc r8d
@@ -463,6 +529,12 @@ waiting_for_other: db '[9H[J', 0xA, 'Waiting for other player…'
 waiting_for_other_len: equ $ - waiting_for_other
 select_card_commands: db '[10H[JSelect card:', 0xA, '[←] left [→] right [⏎] select'
 select_card_commands_len: equ $ - select_card_commands
+select_suit_commands: db '[9H[J', 0xA, 'Select suit:', 0xA, '[0] ♠ [1] ♣ [2] ♦ [3] ♥'
+select_suit_commands_len: equ $ - select_suit_commands
+player1_win_msg: db '[H[JYou won!'
+player1_win_msg_len: equ $ - player1_win_msg
+player2_win_msg: db '[H[JThe other player won.'
+player2_win_msg_len: equ $ - player2_win_msg
 hand2_pos: db '[2;11H'
 hand1_pos: db '[7;11H'
 dis_pos: db '[4;11H'
@@ -504,6 +576,12 @@ deck_len: resb 1
 ;; [0x0, 0x32): place card at this index (max 50/0x32 cards in a hand). this ends a turn
 ;; [0x32, 0x33): draw top card
 ;; [0x33, 0x34): reshuffle deck. followed by n bytes, indicating the new cards in the deck. n is the current length of the discard - 1. the discard is emptied, with only the top card remaining
-;; [0x34, 0x35): end game
+;; [0x34, 0x35): quit game early
+;; [0x35, 0x36): sender has won
+;; [0x38, 0x3C): eight card, spades, clubs, diamonds, hearts
 ;; Both the host and the guest are expected to keep track of state independently
 ;; The protocol is designed with the assumption that transmission is reliable
+;; Both the host and the guest are expected to conform to this protocol
+;; Player 1 always refers to the player this process is representing
+;; Player 2 is the remote player
+;; (Player 1 does not always mean host, or vice versa)
