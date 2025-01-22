@@ -542,7 +542,7 @@ waiting_for_other: db '[9H[J', 0xA, 'Waiting for them…'
 waiting_for_other_len: equ $ - waiting_for_other
 select_card_commands: db '[10H[JSelect card:', 0xA, '[32m[←][m left [32m[→][m right [32m[⏎][m select'
 select_card_commands_len: equ $ - select_card_commands
-select_suit_commands: db '[9H[J', 0xA, 'Select suit:', 0xA, '[0]♠ [1]♣ [2]♦ [3]♥'
+select_suit_commands: db '[9H[J', 0xA, 'Select suit:', 0xA, '[32m[0][m♠ [32m[1][m♣ [32m[2][31m♦ [32m[3][31m♥[m'
 select_suit_commands_len: equ $ - select_suit_commands
 player1_win_msg: db '[H[JYou won!'
 player1_win_msg_len: equ $ - player1_win_msg

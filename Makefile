@@ -5,6 +5,15 @@ BINS_DEBUG:=$(patsubst %.asm,bin/%-debug,$(SRCS))
 all: $(BINS)
 debug: $(BINS_DEBUG)
 
+qr-%-bin.png: bin/%
+	qrencode -r $^ -o $@ -8
+
+qr-%-gz-b64.png: bin/%.gz
+	printf "data:application/gzip;base64,%s" $$(base64 $^ -w0) | qrencode -o $@
+
+bin/%.gz: bin/%
+	gzip -k -9 -n $^
+
 bin/%: bin/%.o
 	ld -o $@ $^ -s -z noseparate-code  && strip --strip-section-headers $@
 
