@@ -31,7 +31,7 @@ main_loop:
   call getc
   cmp eax, 'e'
   je quit.exit ; quit when they press e
-  cmp eax, 'c'
+  cmp eax, 'j'
   je connect
 host:
   ; create server and wait for connection
@@ -43,7 +43,7 @@ host:
   xor edi, edi
   mov byte dil, [conn_fd]
   mov esi, all_cards
-  mov edx, 52
+  mov byte dl, 52
   syscall
   call initial_print
   jmp game_loop_host_start
@@ -55,25 +55,26 @@ connect:
 
   ; first 7 into hand2
   mov esi, hand2
-  mov edx, 7
+  mov dl, 7
+  xor al, al
   mov byte [hand2_len], dl
   syscall
   ; next 7 into hand1
   mov esi, hand1
-  mov edx, eax                  ; eax = 7
-  xor eax, eax
+  mov dl, al                  ; eax = 7
+  xor al, al
   mov byte [hand1_len], dl
   syscall
   ; next 1 into discard
   mov esi, discard
-  mov1 edx
-  xor eax, eax
+  mov1 dl
+  xor al, al
   mov byte [discard_len], dl
   syscall
   ; next 37 into deck
   mov esi, deck
-  mov edx, 37
-  dec eax                       ; eax = 1, -> eax = 0
+  mov dl, 37
+  xor al, al
   mov byte [deck_len], dl
   syscall
 
@@ -94,15 +95,15 @@ game_loop_host_start:
 
   xor r8d, r8d
 
-  cmp eax, 'e'
+  cmp al, 'e'
   je quit
-  cmp eax, 'd'
+  cmp al, 'd'
   je draw_card
 
 place_card:
   ; print instructions
   mov esi, select_card_commands
-  mov edx, select_card_commands_len
+  mov byte dl, select_card_commands_len
   call print
 
   ; move hand len into r10b
@@ -112,7 +113,7 @@ place_card:
 .place_card_loop:
   ; choose a card
   mov esi, hand1_select_pos
-  mov edx, hand1_select_pos_len
+  mov byte dl, hand1_select_pos_len
   call print
 
   ; move the cursor to correct position
@@ -134,7 +135,7 @@ place_card:
   je .place_card_select
   call getc                     ; [
   call getc                     ; C = right, D = left
-  cmp eax, 'C'
+  cmp al, 'C'
   je .move_right
 .move_left:
   ; bounds check
@@ -396,7 +397,6 @@ print_board_values:
   mov esi, dis_card_pos
   mov edx, pos_len
   call print
-  xor edi, edi
   mov byte dil, [discard_len]
   dec edi
   mov byte r8b, [discard + edi]
@@ -495,6 +495,16 @@ init_shuffle_cards:
   
 ; card in r8b
 print_card:
+  mov r14b, r8b
+  and r14b, 0x3
+  cmp r14b, 2
+  jl .print_rank
+
+  mov esi, red_color
+  mov byte dl, red_color_len
+  call print
+  
+.print_rank:
   ; rank = 1 byte
   mov1 edx
   
@@ -505,7 +515,7 @@ print_card:
   call print
 
   ; each card symbol is a 3-byte UTF-8 sequence + 1 byte space
-  mov edx, 4
+  mov byte dl, 4
 
   xor esi, esi
   mov byte sil, r8b
@@ -513,25 +523,30 @@ print_card:
   shl sil, 2                    ; multiply by 4 (4 bytes)
   add esi, suits                ; get suit symbol
   call print
+
+  mov esi, reset_color
+  ;mov edx, reset_color_len
+  dec dl                       ; edx needs to be 3, it's 4 rn
+  call print
   
   ret
 
 section .data
-welcome: db '[H[J[?25l[36mCrazy Eights:', 0xA, '[32m[h][most [32m[c][monnect'
+welcome: db '[H[J[?25l[36mCrazy Eights', 0xA, '[32m[h][most [32m[j][moin'
 welcome_len: equ $ - welcome
 board: db '[2H[JThem:    [  ]', 0xA, 0xA, 'Discard: [  ]', 0xA, 'Deck:    [  ]', 0xA, 0xA, 'You:     [  ]'
 board_len: equ $ - board
 turn_commands: db '[9H[J', 0xA, 'Your turn:', 0xA, '[32m[d][mraw [32m[p][mlace [32m[e][mxit'
 turn_commands_len: equ $ - turn_commands
-waiting_for_other: db '[9H[J', 0xA, 'Waiting for other player…'
+waiting_for_other: db '[9H[J', 0xA, 'Waiting for them…'
 waiting_for_other_len: equ $ - waiting_for_other
 select_card_commands: db '[10H[JSelect card:', 0xA, '[32m[←][m left [32m[→][m right [32m[⏎][m select'
 select_card_commands_len: equ $ - select_card_commands
-select_suit_commands: db '[9H[J', 0xA, 'Select suit:', 0xA, '[0] ♠ [1] ♣ [2] ♦ [3] ♥'
+select_suit_commands: db '[9H[J', 0xA, 'Select suit:', 0xA, '[0]♠ [1]♣ [2]♦ [3]♥'
 select_suit_commands_len: equ $ - select_suit_commands
 player1_win_msg: db '[H[JYou won!'
 player1_win_msg_len: equ $ - player1_win_msg
-player2_win_msg: db '[H[JThe other player won.'
+player2_win_msg: db '[H[JThey won.'
 player2_win_msg_len: equ $ - player2_win_msg
 hand2_pos: db '[2;11H'
 hand1_pos: db '[7;11H'
@@ -547,6 +562,10 @@ hand1_select_icon: db 'G↑'       ; 'G' is remaining from the CSI sequence abov
 hand1_select_icon_len: equ $ - hand1_select_icon
 ranks: db 'A23456789TJQK'
 suits: db '♠ ♣ ♦ ♥ '
+red_color: db '[31m'
+red_color_len: equ $ - red_color
+reset_color: db '[m'
+reset_color_len: equ $ - reset_color
 section .bss
 ; all cards
 all_cards: resb 52
