@@ -153,19 +153,17 @@ place_card:
   mov byte r9b, [discard_len]
   mov byte r12b, [discard + r9d - 1] ; r12b = top card
   mov r13b, r11b
-  mov r14b, r12b
-  and r13b, 0x3                 ; r13b now has only 2 bits
-  and r14b, 0x3                 ; same
-  cmp byte r13b, r14b           ; if equal, then same suit
+  xor r13b, r12b                ; lower 2 bits will be 0 if same suit
+  and r13b, 0x3                 ; clear other bits
+  cmp byte r13b, 0              ; if 0, then same suit
   je .place_card_exec
   mov r13b, r11b
-  mov r14b, r12b
   and r13b, 0x3C                ; upper 4 bits
-  cmp r13b, 0x1C                ; rank 8
+  cmp r13b, 0x1C               ; rank 8
   je .place_card_exec
-  and r14b, 0x3C                ; same principle as above
-  cmp byte r13b, r14b           ; if equal, then same rank
-  jne game_loop_no_wait                ; invalid selection
+  xor r13b, r12b                ; upper 4 bits will be 0 if same rank
+  cmp byte r13b, 3              ; if 0, 1, 2, or 3, then same rank
+  jg game_loop_no_wait                ; invalid selection
 .place_card_exec:
   ; dec hand size
   mov byte [hand1_len], r10b
@@ -519,15 +517,15 @@ print_card:
   ret
 
 section .data
-welcome: db '[H[J[?25l[36mCrazy Eights:[m', 0xA, '[h]ost [c]onnect [e]xit'
+welcome: db '[H[J[?25l[36mCrazy Eights:', 0xA, '[32m[h][most [32m[c][monnect'
 welcome_len: equ $ - welcome
 board: db '[2H[JThem:    [  ]', 0xA, 0xA, 'Discard: [  ]', 0xA, 'Deck:    [  ]', 0xA, 0xA, 'You:     [  ]'
 board_len: equ $ - board
-turn_commands: db '[9H[J', 0xA, 'Your turn:', 0xA, '[d]raw [p]lace [e]xit'
+turn_commands: db '[9H[J', 0xA, 'Your turn:', 0xA, '[32m[d][mraw [32m[p][mlace [32m[e][mxit'
 turn_commands_len: equ $ - turn_commands
 waiting_for_other: db '[9H[J', 0xA, 'Waiting for other player…'
 waiting_for_other_len: equ $ - waiting_for_other
-select_card_commands: db '[10H[JSelect card:', 0xA, '[←] left [→] right [⏎] select'
+select_card_commands: db '[10H[JSelect card:', 0xA, '[32m[←][m left [32m[→][m right [32m[⏎][m select'
 select_card_commands_len: equ $ - select_card_commands
 select_suit_commands: db '[9H[J', 0xA, 'Select suit:', 0xA, '[0] ♠ [1] ♣ [2] ♦ [3] ♥'
 select_suit_commands_len: equ $ - select_suit_commands
